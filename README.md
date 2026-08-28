@@ -12,7 +12,7 @@ task — no image or pod rebuild.
 ## Layout
 
 ```
-.claude-plugin/marketplace.json     # marketplace catalog (Codex reads this)
+.agents/plugins/marketplace.json    # marketplace catalog (harness-neutral; Codex reads this)
 plugins/issue-fix/
   .codex-plugin/plugin.json          # plugin manifest
   skills/issue-fix/
