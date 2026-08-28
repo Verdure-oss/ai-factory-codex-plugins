@@ -1,0 +1,5 @@
+{
+  "name": "issue-fix",
+  "version": "0.1.0",
+  "description": "ai-factory delegated issue->PR workflow: understand the issue, make the smallest correct fix, run local CI, commit, push, and open a PR/MR."
+}
