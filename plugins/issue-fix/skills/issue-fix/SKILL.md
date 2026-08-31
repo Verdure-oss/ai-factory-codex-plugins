@@ -1,6 +1,6 @@
 ---
 name: issue-fix
-description: ai-factory delegated workflow. Use inside an ai-factory sandbox when Codex must take an issue all the way to a pull/merge request itself — understand the issue, make the smallest correct fix, run the repository's checks locally, commit, push, and open the PR/MR. The controller only prepares the checkout and reports the result; every workflow step lives here.
+description: Use when running as the delegated coding agent inside an ai-factory sandbox — the AI_FACTORY_* environment variables are set, and the task is a repository issue that must reach an opened pull request or merge request with no controller step afterwards.
 ---
 
 # ai-factory issue-fix (delegated workflow)
@@ -27,8 +27,7 @@ push and open the change request, nothing will.
 | `AI_FACTORY_PR_BODY` | suggested PR/MR body (may be empty) |
 | `GITHUB_TOKEN` / `GITLAB_TOKEN` | git + `gh`/`glab` auth (already exported) |
 
-The task instructions (the issue) are the prompt you were given. Provider
-command recipes live in `references/github.md` and `references/gitlab.md`.
+The task instructions (the issue) are the prompt you were given.
 
 ## Workflow
 
@@ -40,35 +39,47 @@ command recipes live in `references/github.md` and `references/gitlab.md`.
 3. **Edit.** Make focused edits. Do not refactor unrelated code.
 4. **Validate locally (CI left-shift).** Run the repository's own checks in the
    sandbox before pushing — see "Local CI" below. Fix failures and re-run until
-   green or you hit the no-progress cap.
+   green, or stop at the no-progress cap. If the environment cannot run the
+   checks, note that in the result and proceed — remote CI covers it.
 5. **Commit.** Create/switch to `AI_FACTORY_BRANCH` off the base, then commit
    real changes only, with a semantic message (`fix:`, `feat:`, `docs:`…).
 6. **Push.** Push the branch to `AI_FACTORY_REMOTE` (see safety rails on force).
-7. **Open the PR/MR.** Use `gh` (GitHub) or `glab` (GitLab) with the title/body
-   from the environment; link the issue with `Closes #<n>` when possible.
+7. **Open the PR/MR.** Read this task's provider reference first — see "Open the
+   change request" below.
 8. **Report the result** (required — see "Result contract").
 
 ## Local CI (validate before you push)
 
-Pick check commands in this priority and run them from the repo root:
+Local validation is **environment-dependent and best-effort**. The sandbox is a
+generic dev image that may not match the repo's toolchain or dependencies.
+Probe before you run, and never fight a missing environment:
 
 1. Any validation commands ai-factory injected for this task (if provided in the
-   instructions) — these are the most authoritative.
-2. Otherwise infer from the repo: `go build ./... && go test ./...`,
-   `gofmt -l .`, `npm ci && npm test`, `make test`, or the linters configured in
-   the repo. Prefer what the repo's own CI runs.
+   instructions) — these are the most authoritative; the controller knows the
+   environment, so run them as given.
+2. Otherwise infer from the repo — but **only when the toolchain is installed**:
+   probe with `command -v go` before `go build ./...`, `command -v npm` before
+   `npm test`, and so on. If a tool is missing, state it plainly ("environment
+   lacks X; local validation skipped, relying on remote CI") and move on — do
+   not hard-run a check that must fail for lack of environment.
 3. Best-effort: skim `.github/workflows/*.yml` or `.gitlab-ci.yml` for the
-   `run:` steps and mirror the cheap, non-network ones.
+   `run:` steps and mirror the cheap, non-network ones the environment supports.
 
-The sandbox is largely offline for Go (`GOTOOLCHAIN=local`, no proxy); if a
-check needs network dependencies it cannot fetch, note it and move on rather
-than fighting it. `scripts/local-ci.sh` is a convenience wrapper.
+[`scripts/local-ci.sh`](scripts/local-ci.sh) automates steps 1-2 with this
+probe-then-skip behavior (run it from the repo root, or anywhere with
+`AI_FACTORY_WORKDIR` set).
 
-Local validation is an approximation — remote CI can still differ. That is
-acceptable: the goal is to catch the common failures (build, unit tests, format,
-lint) before opening the PR, not to guarantee remote green.
+The sandbox is largely offline for Go (`GOTOOLCHAIN=local`, no proxy); even with
+the toolchain present, a check needing unfetched dependencies may fail — note it
+and move on rather than fighting it.
 
-## Commit, push, open the PR/MR
+Local validation is an approximation — remote CI can still differ. The goal is
+to catch the common failures (build, unit tests, format, lint) **when the
+environment allows**, not to guarantee remote green. If the environment cannot
+validate the repo at all, that is acceptable: open the PR and let remote CI do
+its job.
+
+## Commit and push
 
 ```sh
 cd "${AI_FACTORY_WORKDIR:-/workspace/repo}"
@@ -79,38 +90,23 @@ git -c user.name=ai-factory -c user.email=ai-factory@example.invalid \
 git push -u "$AI_FACTORY_REMOTE" "$AI_FACTORY_BRANCH"
 ```
 
-Then open the change request with the provider CLI. Compact inline recipes
-(self-contained — work even if the `references/` files are not mounted):
+## Open the change request
 
-**GitHub** (`gh`, authed via `GITHUB_TOKEN`):
-```sh
-TITLE="${AI_FACTORY_PR_TITLE:-fix: $(git log -1 --pretty=%s)}"
-BODY="${AI_FACTORY_PR_BODY:-Resolves ${AI_FACTORY_ISSUE_URL}}
-Closes ${AI_FACTORY_ISSUE_URL}"
-# Always pass -R "$AI_FACTORY_REPO": a git proxy (AI_FACTORY_GIT_PROXY) may rewrite
-# the origin remote to a non-github.com host, which makes gh fail with "none of the
-# git remotes ... point to a known GitHub host". -R names the repo explicitly so gh
-# talks to the API directly and does not parse the remote URL.
-PR_URL="$(gh pr create -R "$AI_FACTORY_REPO" --base "$AI_FACTORY_TARGET_BRANCH" --head "$AI_FACTORY_BRANCH" \
-  --title "$TITLE" --body "$BODY" 2>/dev/null)"
-[ -z "$PR_URL" ] && PR_URL="$(gh pr view "$AI_FACTORY_BRANCH" -R "$AI_FACTORY_REPO" --json url --jq .url 2>/dev/null)"
-```
+Read the reference for this task's provider before running any provider command:
 
-**GitLab** (`glab`, authed via `GITLAB_TOKEN`):
-```sh
-# -R "$AI_FACTORY_REPO" for the same reason as GitHub: don't let a rewritten remote
-# (via AI_FACTORY_GIT_PROXY) break glab's repo detection.
-glab mr create -R "$AI_FACTORY_REPO" --source-branch "$AI_FACTORY_BRANCH" --target-branch "$AI_FACTORY_TARGET_BRANCH" \
-  --title "${AI_FACTORY_PR_TITLE:-fix: $(git log -1 --pretty=%s)}" \
-  --description "${AI_FACTORY_PR_BODY:-Resolves ${AI_FACTORY_ISSUE_URL}}
-Closes ${AI_FACTORY_ISSUE_URL}" --yes >/tmp/glab.out 2>&1 || true
-PR_URL="$(grep -Eo 'https?://[^ ]+/-/merge_requests/[0-9]+' /tmp/glab.out | head -n1)"
-```
+| `AI_FACTORY_PROVIDER` | Read |
+| --- | --- |
+| `github` | [`references/github.md`](references/github.md) — `gh pr create` |
+| `gitlab` | [`references/gitlab.md`](references/gitlab.md) — `glab mr create` |
 
-For fuller detail (existing-PR reuse, CI inspection, self-managed hosts) see
-[`references/github.md`](references/github.md) and
-[`references/gitlab.md`](references/gitlab.md) when present. Target
-`AI_FACTORY_TARGET_BRANCH`; use `AI_FACTORY_PR_TITLE`/`AI_FACTORY_PR_BODY` when set.
+Each reference carries the exact command, the flags that are mandatory in this
+sandbox (a git proxy rewrites the origin remote, so provider CLIs need the repo
+named explicitly), how to reuse an existing change request on a re-run, and how
+to recover the URL when the create call prints nothing. Both set `PR_URL`, which
+the result contract below requires — you cannot finish the task without it.
+
+Target `AI_FACTORY_TARGET_BRANCH`; use `AI_FACTORY_PR_TITLE` /
+`AI_FACTORY_PR_BODY` when set, and link the issue so it auto-closes on merge.
 
 ## Result contract (required)
 
@@ -147,4 +143,3 @@ nothing after it.
   failure twice, or no new commit), stop and report the blocker in the result
   summary rather than looping.
 - Commit only real diffs; if there is nothing to change, say so in the result.
-

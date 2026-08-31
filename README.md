@@ -19,6 +19,7 @@ plugins/issue-fix/
     SKILL.md                         # the delegated workflow playbook
     references/github.md             # gh (GitHub) command recipes
     references/gitlab.md             # glab (GitLab) command recipes
+    scripts/local-ci.sh              # local CI pre-runner (probe-then-skip)
 ```
 
 ## How it is used
