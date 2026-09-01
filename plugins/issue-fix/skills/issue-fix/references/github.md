@@ -9,18 +9,15 @@ the repository checkout.
 # Title from the environment, falling back to the last commit subject.
 TITLE="${AI_FACTORY_PR_TITLE:-fix: $(git log -1 --pretty=%s)}"
 
-# Body: injected value verbatim when set, otherwise the REQUIRED fields from
-# SKILL.md. Fill in the placeholders — do not ship them literally. The Resolves
-# line is what auto-closes the issue on merge, so the body always carries it.
-if [ -n "${AI_FACTORY_PR_BODY:-}" ]; then
-  BODY="$AI_FACTORY_PR_BODY"
-else
-  BODY="Changes:      <what changed and why>
+# Body: compose the REQUIRED template from SKILL.md into $BODY first (only the
+# Changes line may borrow from AI_FACTORY_PR_BODY — never ship it verbatim; it
+# is often an auto-generated placeholder). This fallback keeps at least the
+# Resolves line so the issue still closes if BODY is empty.
+BODY="${BODY:-Changes:      <what changed and why>
 Validation:   <checks run and their result, or N/A + reason>
 Out of scope: <requests you declined, or None>
 
-Resolves ${AI_FACTORY_ISSUE_URL}"
-fi
+Resolves ${AI_FACTORY_ISSUE_URL}}"
 
 PR_URL="$(gh pr create \
   -R "$AI_FACTORY_REPO" \

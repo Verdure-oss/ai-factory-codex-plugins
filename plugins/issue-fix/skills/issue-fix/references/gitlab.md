@@ -13,18 +13,15 @@ from the repository checkout. Set the host once if the project is self-managed:
 ```sh
 TITLE="${AI_FACTORY_PR_TITLE:-fix: $(git log -1 --pretty=%s)}"
 
-# Body: injected value verbatim when set, otherwise the REQUIRED fields from
-# SKILL.md. Fill in the placeholders — do not ship them literally. GitLab's
-# default closing pattern accepts "Resolves", so the body auto-closes the issue.
-if [ -n "${AI_FACTORY_PR_BODY:-}" ]; then
-  BODY="$AI_FACTORY_PR_BODY"
-else
-  BODY="Changes:      <what changed and why>
+# Body: compose the REQUIRED template from SKILL.md into $BODY first (only the
+# Changes line may borrow from AI_FACTORY_PR_BODY — never ship it verbatim; it
+# is often an auto-generated placeholder). GitLab's default closing pattern
+# accepts "Resolves", so the fallback below also auto-closes the issue.
+BODY="${BODY:-Changes:      <what changed and why>
 Validation:   <checks run and their result, or N/A + reason>
 Out of scope: <requests you declined, or None>
 
-Resolves ${AI_FACTORY_ISSUE_URL}"
-fi
+Resolves ${AI_FACTORY_ISSUE_URL}}"
 
 glab mr create \
   -R "$AI_FACTORY_REPO" \
