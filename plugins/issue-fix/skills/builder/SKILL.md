@@ -18,14 +18,33 @@ in the repository checkout at `AI_FACTORY_WORKDIR` (default `/workspace/repo`).
 
 ## Task
 
-1. **Create/switch to the change branch off the base**, so `git diff` reflects
-   only your edits:
+1. **Create/switch to the change branch**, so `git diff` reflects only your
+   edits. The clone may be a **fork** — when ai-factory runs as an account that
+   differs from the repo's owner (a public repo owned by someone else), the
+   checkout is that account's fork and the PR must open against the original
+   repo. Detect it by comparing `origin`'s owner with `AI_FACTORY_REPO`'s owner,
+   and in fork mode branch off the **upstream target** (not base):
 
    ```sh
    cd "${AI_FACTORY_WORKDIR:-/workspace/repo}"
-   git fetch origin
-   git checkout -B "$AI_FACTORY_BRANCH" "origin/$AI_FACTORY_BASE_REF"
+   origin_url=$(git remote get-url origin)
+   origin_owner=$(echo "$origin_url" | sed -E 's#.*[/:]([^/]+)/([^/]+)\.git#\1#')
+   repo_owner="${AI_FACTORY_REPO%/*}"
+
+   if [ "$origin_owner" != "$repo_owner" ]; then
+     # Fork mode: origin is <origin_owner>'s fork of <repo_owner>/<repo>.
+     upstream_url=$(echo "$origin_url" | sed "s#/${origin_owner}/#/${repo_owner}/#")
+     git remote add upstream "$upstream_url" 2>/dev/null || git remote set-url upstream "$upstream_url"
+     git fetch --depth 1 upstream "$AI_FACTORY_TARGET_BRANCH"
+     git checkout -B "$AI_FACTORY_BRANCH" "upstream/$AI_FACTORY_TARGET_BRANCH"
+   else
+     git fetch origin
+     git checkout -B "$AI_FACTORY_BRANCH" "origin/$AI_FACTORY_BASE_REF"
+   fi
    ```
+
+   In fork mode, push still targets `origin` (the fork); the pull request is
+   opened against `AI_FACTORY_REPO` with head `<origin_owner>:<branch>`.
 
 2. **Read the plan** at `.ai-factory/plan.md`, then locate the relevant code
    (`rg`, `find`, read files). Make the smallest correct change that fully

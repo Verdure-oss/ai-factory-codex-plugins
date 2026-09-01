@@ -69,26 +69,43 @@ The task instructions (the issue) are the prompt you were given.
 
 ## Commit and push
 
-This task may be a **re-run of the same issue** (e.g. a retry after a failure):
-the change branch `AI_FACTORY_BRANCH` and its PR may already exist on the
-remote. Treat a re-run as a **clean redo**, never as incremental work on the
-previous attempt's commits — start from the base branch and rebuild:
+The change branch was already checked out in the build phase (fork-aware), and
+the reviewed diff is in the working tree. **Commit it as-is — do not
+re-checkout, which would discard the reviewed changes:**
 
 ```sh
 cd "${AI_FACTORY_WORKDIR:-/workspace/repo}"
-git fetch origin
-git checkout -B "$AI_FACTORY_BRANCH" "origin/$AI_FACTORY_BASE_REF"   # clean start from base
 git add -A            # NEVER stage .ai-factory/ (it is git-excluded already)
 git -c user.name=ai-factory -c user.email=ai-factory@example.invalid \
     commit -m "fix: <concise summary>"
 git push --force-with-lease -u "$AI_FACTORY_REMOTE" "$AI_FACTORY_BRANCH"
 ```
 
-- `--force-with-lease` only rewrites this deterministic per-issue branch (see
-  safety rails). On a re-run, the existing PR follows the branch automatically —
-  reuse its URL (see the provider reference) instead of creating a new one.
-- If a re-run finds the issue already resolved and there is nothing to change,
-  say so in the result instead of redoing work.
+**Re-run** (same issue retried, e.g. after a failure): the branch and its PR may
+already exist. Treat it as a **clean redo**, never as incremental work on the
+previous attempt's commits. Reset the branch off its base first — in fork mode,
+off `upstream/$AI_FACTORY_TARGET_BRANCH` (see "Fork mode") — then commit and
+push as above. `--force-with-lease` only rewrites this deterministic per-issue
+branch (see safety rails). The existing PR follows the branch automatically, so
+reuse its URL instead of opening a new one. If the issue is already resolved and
+there is nothing to change, say so in the result instead of redoing work.
+
+## Fork mode
+
+When ai-factory runs as an account that differs from the repo's owner (the
+target is a public repo owned by someone else), the clone is that account's
+**fork** and the PR must open against the original repo. This is **GitHub-only**
+(GitLab rejects `forkOwner`). Detect it by comparing `origin`'s owner with
+`AI_FACTORY_REPO`'s owner:
+
+- **Same owner** → not a fork: branch off `origin/$AI_FACTORY_BASE_REF`.
+- **Different owner** → fork: add the original repo as `upstream` (same host,
+  `AI_FACTORY_REPO` path), branch off `upstream/$AI_FACTORY_TARGET_BRANCH`, push
+  to `origin` (the fork), and open the PR with head `<origin_owner>:<branch>`
+  against `AI_FACTORY_REPO`.
+
+The build phase and the provider reference carry the exact commands; the re-run
+reset above is fork-aware.
 
 ## Open the change request
 

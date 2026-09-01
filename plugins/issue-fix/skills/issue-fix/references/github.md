@@ -25,10 +25,16 @@ Out of scope: <requests you declined, or None>
 
 Resolves ${AI_FACTORY_ISSUE_URL}"
 
+# Head needs a fork-owner prefix when origin is a fork of AI_FACTORY_REPO
+# (task runs as a different account than the repo owner). Detect and prefix.
+HEAD_BRANCH="$AI_FACTORY_BRANCH"
+_origin_owner="$(git remote get-url origin | sed -E 's#.*[/:]([^/]+)/([^/]+)\.git#\1#')"
+[ "$_origin_owner" != "${AI_FACTORY_REPO%/*}" ] && HEAD_BRANCH="${_origin_owner}:${AI_FACTORY_BRANCH}"
+
 PR_URL="$(gh pr create \
   -R "$AI_FACTORY_REPO" \
   --base "$AI_FACTORY_TARGET_BRANCH" \
-  --head "$AI_FACTORY_BRANCH" \
+  --head "$HEAD_BRANCH" \
   --title "$TITLE" \
   --body "$BODY" 2>/dev/null)"
 
