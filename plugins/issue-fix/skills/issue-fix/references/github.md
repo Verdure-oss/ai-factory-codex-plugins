@@ -6,17 +6,21 @@ the repository checkout.
 ## Open a pull request
 
 ```sh
-# Title/body from the environment, falling back to sensible defaults.
+# Title from the environment, falling back to the last commit subject.
 TITLE="${AI_FACTORY_PR_TITLE:-fix: $(git log -1 --pretty=%s)}"
-BODY="${AI_FACTORY_PR_BODY:-Resolves ${AI_FACTORY_ISSUE_URL}}"
 
-# Link the issue so it auto-closes on merge (append if not already present).
-case "$BODY" in
-  *Closes*|*closes*) : ;;
-  *) BODY="$BODY
+# Body: injected value verbatim when set, otherwise the REQUIRED fields from
+# SKILL.md. Fill in the placeholders — do not ship them literally. The Resolves
+# line is what auto-closes the issue on merge, so the body always carries it.
+if [ -n "${AI_FACTORY_PR_BODY:-}" ]; then
+  BODY="$AI_FACTORY_PR_BODY"
+else
+  BODY="Changes:      <what changed and why>
+Validation:   <checks run and their result, or N/A + reason>
+Out of scope: <requests you declined, or None>
 
-Closes ${AI_FACTORY_ISSUE_URL}" ;;
-esac
+Resolves ${AI_FACTORY_ISSUE_URL}"
+fi
 
 PR_URL="$(gh pr create \
   -R "$AI_FACTORY_REPO" \

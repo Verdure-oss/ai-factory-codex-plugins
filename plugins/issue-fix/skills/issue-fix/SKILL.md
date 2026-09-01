@@ -25,6 +25,9 @@ push and open the change request, nothing will.
 | `AI_FACTORY_ISSUE_URL` | the triggering issue URL |
 | `AI_FACTORY_PR_TITLE` | suggested PR/MR title (may be empty) |
 | `AI_FACTORY_PR_BODY` | suggested PR/MR body (may be empty) |
+| `AI_FACTORY_WORKDIR` | repository checkout directory (default `/workspace/repo`) |
+| `AI_FACTORY_CI_COMMANDS` | semicolon-separated validation commands injected for this task (may be empty) |
+| `AI_FACTORY_GIT_PROXY` | git proxy host used to rewrite `origin` (see provider references) |
 | `GITHUB_TOKEN` / `GITLAB_TOKEN` | git + `gh`/`glab` auth (already exported) |
 
 The task instructions (the issue) are the prompt you were given.
@@ -54,9 +57,9 @@ Local validation is **environment-dependent and best-effort**. The sandbox is a
 generic dev image that may not match the repo's toolchain or dependencies.
 Probe before you run, and never fight a missing environment:
 
-1. Any validation commands ai-factory injected for this task (if provided in the
-   instructions) — these are the most authoritative; the controller knows the
-   environment, so run them as given.
+1. Any validation commands ai-factory injected for this task via
+   `AI_FACTORY_CI_COMMANDS` (if set) — these are the most authoritative; the
+   controller knows the environment, so run them as given.
 2. Otherwise infer from the repo — but **only when the toolchain is installed**:
    probe with `command -v go` before `go build ./...`, `command -v npm` before
    `npm test`, and so on. If a tool is missing, state it plainly ("environment
@@ -81,14 +84,26 @@ its job.
 
 ## Commit and push
 
+This task may be a **re-run of the same issue** (e.g. a retry after a failure):
+the change branch `AI_FACTORY_BRANCH` and its PR may already exist on the
+remote. Treat a re-run as a **clean redo**, never as incremental work on the
+previous attempt's commits — start from the base branch and rebuild:
+
 ```sh
 cd "${AI_FACTORY_WORKDIR:-/workspace/repo}"
-git checkout -B "$AI_FACTORY_BRANCH"
+git fetch origin
+git checkout -B "$AI_FACTORY_BRANCH" "origin/$AI_FACTORY_BASE_REF"   # clean start from base
 git add -A            # NEVER stage .ai-factory/ (it is git-excluded already)
 git -c user.name=ai-factory -c user.email=ai-factory@example.invalid \
     commit -m "fix: <concise summary>"
-git push -u "$AI_FACTORY_REMOTE" "$AI_FACTORY_BRANCH"
+git push --force-with-lease -u "$AI_FACTORY_REMOTE" "$AI_FACTORY_BRANCH"
 ```
+
+- `--force-with-lease` only rewrites this deterministic per-issue branch (see
+  safety rails). On a re-run, the existing PR follows the branch automatically —
+  reuse its URL (see the provider reference) instead of creating a new one.
+- If a re-run finds the issue already resolved and there is nothing to change,
+  say so in the result instead of redoing work.
 
 ## Open the change request
 
@@ -105,8 +120,24 @@ named explicitly), how to reuse an existing change request on a re-run, and how
 to recover the URL when the create call prints nothing. Both set `PR_URL`, which
 the result contract below requires — you cannot finish the task without it.
 
-Target `AI_FACTORY_TARGET_BRANCH`; use `AI_FACTORY_PR_TITLE` /
-`AI_FACTORY_PR_BODY` when set, and link the issue so it auto-closes on merge.
+Target `AI_FACTORY_TARGET_BRANCH`, and use `AI_FACTORY_PR_TITLE` when set.
+
+**PR/MR body.** Use `AI_FACTORY_PR_BODY` verbatim when it is set. Otherwise
+compose the body yourself — every field below is REQUIRED; write `None` when a
+field has no content:
+
+```text
+Changes:      <what changed and why>
+Validation:   <checks run and their result, or
+              "N/A: environment lacks X — relying on remote CI">
+Out of scope: <requests you declined, or None>
+
+Resolves <AI_FACTORY_ISSUE_URL>
+```
+
+The `Resolves` line auto-closes the issue on merge (GitHub and GitLab both
+accept it) — it is never optional. `Out of scope` is where the scope rules below
+require you to record declined requests.
 
 ## Result contract (required)
 
