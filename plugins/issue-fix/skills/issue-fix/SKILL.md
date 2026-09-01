@@ -115,7 +115,10 @@ is REQUIRED; write `None` when a field has no content:
 ```text
 <AI_FACTORY_PR_BODY opening line>
 
-Changes:      <what changed and why>
+Changes:
+- <what changed, one point per line>
+- <reason when not obvious from the code>
+
 Validation:   <checks run and their result, or
               "N/A: environment lacks X — relying on remote CI">
 Out of scope: <requests you declined, or None>
@@ -123,9 +126,12 @@ Out of scope: <requests you declined, or None>
 Resolves <AI_FACTORY_ISSUE_URL>
 ```
 
-The `Resolves` line auto-closes the issue on merge (GitHub and GitLab both
-accept it) — it is never optional. `Out of scope` is where the scope rules below
-require you to record declined requests.
+The opening line and the `Resolves` line both reference the issue — that is not
+a conflict. `Resolves` is the only closing instruction (it auto-closes the
+issue on merge; GitHub and GitLab both accept it), while the opening line only
+records who generated the PR and never closes anything. Always keep `Resolves`.
+`Out of scope` is where the scope rules below require you to record declined
+requests.
 
 ## Result contract (required)
 
