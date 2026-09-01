@@ -1,6 +1,6 @@
 ---
 name: issue-fix
-description: Use when running as the delegated coding agent inside an ai-factory sandbox — the AI_FACTORY_* environment variables are set, and the task is a repository issue that must reach an opened pull request or merge request with no controller step afterwards.
+description: Use when running as the delegated coding agent inside an ai-factory sandbox — the AI_FACTORY_* environment variables are set, and the task is a repository issue that must reach an opened pull request or merge request with no controller step afterwards. This skill is the orchestrator: it plans, then dispatches the builder and reviewer role skills, then commits, pushes, and opens the change request.
 ---
 
 # ai-factory issue-fix (delegated workflow)
@@ -8,9 +8,16 @@ description: Use when running as the delegated coding agent inside an ai-factory
 You are Codex running inside an ai-factory sandbox. The repository is already
 cloned and checked out at `AI_FACTORY_WORKDIR` (default `/workspace/repo`), git
 auth is already in the environment, and you are authenticated. **You own the
-whole workflow**: fix the issue, validate locally, commit, push, and open the
-PR/MR. The controller runs no commit/push/PR/CI steps after you — if you do not
-push and open the change request, nothing will.
+whole workflow** and act as its **orchestrator**: the controller runs no
+commit/push/PR/CI steps after you — if you do not push and open the change
+request, nothing will.
+
+You drive two role skills in sequence:
+
+| Role | Skill | What it does |
+| --- | --- | --- |
+| **Builder** | `skills/builder/SKILL.md` (`../builder/SKILL.md`) | Implements the fix and validates it locally — no commit/push |
+| **Reviewer** | `skills/reviewer/SKILL.md` (`../reviewer/SKILL.md`) | Audits the diff with an independent perspective and gives a verdict |
 
 ## Inputs (already in the environment)
 
@@ -26,7 +33,7 @@ push and open the change request, nothing will.
 | `AI_FACTORY_PR_TITLE` | suggested PR/MR title (may be empty) |
 | `AI_FACTORY_PR_BODY` | suggested PR/MR body (may be empty) |
 | `AI_FACTORY_WORKDIR` | repository checkout directory (default `/workspace/repo`) |
-| `AI_FACTORY_CI_COMMANDS` | semicolon-separated validation commands injected for this task (may be empty) |
+| `AI_FACTORY_CI_COMMANDS` | optional, semicolon-separated validation commands injected for this task — may be unset, then skip |
 | `AI_FACTORY_GIT_PROXY` | git proxy host used to rewrite `origin` (see provider references) |
 | `GITHUB_TOKEN` / `GITLAB_TOKEN` | git + `gh`/`glab` auth (already exported) |
 
@@ -34,53 +41,31 @@ The task instructions (the issue) are the prompt you were given.
 
 ## Workflow
 
-1. **Understand.** Read the issue and locate the relevant code (`rg`, `find`,
-   read files). Reproduce the problem when practical.
-2. **Plan.** State a short plan. Classify each requirement as IN scope, OUT of
-   scope, or UNCERTAIN. Do the smallest complete change that resolves the issue.
-   Follow the repository's own conventions and `AGENTS.md`/contributor rules.
-3. **Edit.** Make focused edits. Do not refactor unrelated code.
-4. **Validate locally (CI left-shift).** Run the repository's own checks in the
-   sandbox before pushing — see "Local CI" below. Fix failures and re-run until
-   green, or stop at the no-progress cap. If the environment cannot run the
-   checks, note that in the result and proceed — remote CI covers it.
-5. **Commit.** Create/switch to `AI_FACTORY_BRANCH` off the base, then commit
-   real changes only, with a semantic message (`fix:`, `feat:`, `docs:`…).
-6. **Push.** Push the branch to `AI_FACTORY_REMOTE` (see safety rails on force).
-7. **Open the PR/MR.** Read this task's provider reference first — see "Open the
-   change request" below.
-8. **Report the result** (required — see "Result contract").
+1. **Understand + plan.** Read the issue and locate the relevant code (`rg`,
+   `find`, read files). Reproduce the problem when practical. Write a plan to
+   `.ai-factory/plan.md` (REQUIRED): the problem, the proposed fix, and each
+   requirement classified IN scope / OUT of scope / UNCERTAIN. Follow the
+   repository's own conventions and `AGENTS.md`/contributor rules.
 
-## Local CI (validate before you push)
+2. **Build phase.** Load and follow the **builder** skill
+   (`skills/builder/SKILL.md`): it creates the change branch off the base,
+   implements the smallest correct fix, and validates it locally. The builder
+   does **not** commit or push — edits stay in the working tree.
 
-Local validation is **environment-dependent and best-effort**. The sandbox is a
-generic dev image that may not match the repo's toolchain or dependencies.
-Probe before you run, and never fight a missing environment:
+3. **Review phase.** Load and follow the **reviewer** skill
+   (`skills/reviewer/SKILL.md`): it audits the working-tree diff against the
+   plan and issue, and returns a verdict — **APPROVE** or **REQUEST_CHANGES**
+   with concrete reasons.
 
-1. Any validation commands ai-factory injected for this task via
-   `AI_FACTORY_CI_COMMANDS` (if set) — these are the most authoritative; the
-   controller knows the environment, so run them as given.
-2. Otherwise infer from the repo — but **only when the toolchain is installed**:
-   probe with `command -v go` before `go build ./...`, `command -v npm` before
-   `npm test`, and so on. If a tool is missing, state it plainly ("environment
-   lacks X; local validation skipped, relying on remote CI") and move on — do
-   not hard-run a check that must fail for lack of environment.
-3. Best-effort: skim `.github/workflows/*.yml` or `.gitlab-ci.yml` for the
-   `run:` steps and mirror the cheap, non-network ones the environment supports.
+4. **Iterate until approved.** On **REQUEST_CHANGES**, return to the build phase
+   with the reviewer's reasons, re-implement, and re-review. Stop at the
+   no-progress cap: the same failure twice, or no new commit, means report the
+   blocker instead of looping.
 
-[`scripts/local-ci.sh`](scripts/local-ci.sh) automates steps 1-2 with this
-probe-then-skip behavior (run it from the repo root, or anywhere with
-`AI_FACTORY_WORKDIR` set).
+5. **Commit, push, open the PR/MR.** Once approved, commit with a semantic
+   message, push the branch, and open the change request — see below.
 
-The sandbox is largely offline for Go (`GOTOOLCHAIN=local`, no proxy); even with
-the toolchain present, a check needing unfetched dependencies may fail — note it
-and move on rather than fighting it.
-
-Local validation is an approximation — remote CI can still differ. The goal is
-to catch the common failures (build, unit tests, format, lint) **when the
-environment allows**, not to guarantee remote green. If the environment cannot
-validate the repo at all, that is acceptable: open the PR and let remote CI do
-its job.
+6. **Report the result** (required — see "Result contract").
 
 ## Commit and push
 
@@ -174,3 +159,5 @@ nothing after it.
   failure twice, or no new commit), stop and report the blocker in the result
   summary rather than looping.
 - Commit only real diffs; if there is nothing to change, say so in the result.
+- The builder never commits, pushes, or opens a change request; the reviewer
+  never modifies files. Only you, the orchestrator, do after review passes.
